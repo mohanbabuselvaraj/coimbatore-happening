@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793681791958,
+      "tag": "0000_previous_thing",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794023963015,
+      "tag": "0001_slippery_cobalt_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794027645893,
+      "tag": "0002_flippant_gambit",
+      "breakpoints": true
+    }
+  ]
+}

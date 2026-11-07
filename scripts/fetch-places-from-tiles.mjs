@@ -1,0 +1,24 @@
+import { VectorTile } from '@mapbox/vector-tile';
+import { PbfReader } from 'pbf';
+import { mkdir,writeFile } from 'node:fs/promises';
+const response=await fetch('https://tiles.openfreemap.org/planet');
+if(!response.ok)throw new Error('Tile index unavailable.');
+const manifest=await response.json(), z=14,n=2**z;
+const tx=lng=>Math.floor((lng+180)/360*n);
+const ty=lat=>Math.floor((1-Math.asinh(Math.tan(lat*Math.PI/180))/Math.PI)/2*n);
+const tasks=[];for(let x=tx(76.87);x<=tx(77.13);x++)for(let y=ty(11.17);y<=ty(10.90);y++)tasks.push([x,y]);
+let bytes=0;const places=new Map();
+async function job(){while(tasks.length){const [x,y]=tasks.shift();const url=manifest.tiles[0].replace('{z}',z).replace('{x}',x).replace('{y}',y);
+const result=await fetch(url,{signal:AbortSignal.timeout(15000)});if(!result.ok)throw new Error(`Tile ${x}/${y} unavailable.`);
+const buffer=await result.arrayBuffer();bytes+=buffer.byteLength;if(bytes>50e6)throw new Error('Extraction size limit reached.');
+const tile=new VectorTile(new PbfReader(buffer));
+for(const key of ['place','poi','water_name']){const layer=tile.layers[key];if(!layer)continue;for(let i=0;i<layer.length;i++){const f=layer.feature(i),p=f.properties;const name=p['name:en']??p.name;
+if(typeof name!=='string'||name.length<2||!f.type||f.type!==1)continue;
+const geo=f.toGeoJSON(x,y,z),[lng,lat]=geo.geometry.type==='Point'?geo.geometry.coordinates:[];
+if(!Number.isFinite(lng)||!Number.isFinite(lat)||lng<76.87||lng>77.13||lat<10.90||lat>11.17)continue;
+const id=name.toLocaleLowerCase().trim();if(!places.has(id))places.set(id,{id:`osm-tile-${f.id??id}`,name,nativeName:p['name:ta']??'',lng,lat,category:p.subclass??p.class??key});
+}}}}
+await Promise.all(Array.from({length:4},job));
+await mkdir('public/data',{recursive:true});
+await writeFile('public/data/places.json',JSON.stringify({source:'OpenStreetMap contributors via OpenFreeMap / OpenMapTiles',license:'ODbL-1.0',licenseUrl:'https://www.openstreetmap.org/copyright',extractedAt:new Date().toISOString(),tileSource:manifest.tiles[0],places:[...places.values()].sort((a,b)=>a.name.localeCompare(b.name))}));
+console.log(`Saved ${places.size} places from ${Math.round(bytes/1024)} KiB of OSM-derived tiles.`);

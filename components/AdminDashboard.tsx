@@ -1,0 +1,100 @@
+'use client';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { createBrowserRouter, RouterProvider, useBlocker, useSearchParams } from 'react-router';
+import { ArrowLeft } from '@phosphor-icons/react/dist/csr/ArrowLeft';
+import { ArrowUpRight } from '@phosphor-icons/react/dist/csr/ArrowUpRight';
+import { CalendarBlank as CalendarDays } from '@phosphor-icons/react/dist/csr/CalendarBlank';
+import { Check } from '@phosphor-icons/react/dist/csr/Check';
+import { Eye } from '@phosphor-icons/react/dist/csr/Eye';
+import { EyeSlash as EyeOff } from '@phosphor-icons/react/dist/csr/EyeSlash';
+import { ClockCounterClockwise as History } from '@phosphor-icons/react/dist/csr/ClockCounterClockwise';
+import { CircleNotch as LoaderCircle } from '@phosphor-icons/react/dist/csr/CircleNotch';
+import { ArrowCounterClockwise as RotateCcw } from '@phosphor-icons/react/dist/csr/ArrowCounterClockwise';
+import { MagnifyingGlass as Search } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
+import { ShieldCheck } from '@phosphor-icons/react/dist/csr/ShieldCheck';
+import { Note as StickyNote } from '@phosphor-icons/react/dist/csr/Note';
+import { X } from '@phosphor-icons/react/dist/csr/X';
+import { SquaresFour } from '@phosphor-icons/react/dist/csr/SquaresFour';
+import { Flag } from '@phosphor-icons/react/dist/csr/Flag';
+import { MapPin } from '@phosphor-icons/react/dist/csr/MapPin';
+import AdminOverview, { AdminSkeleton } from './AdminOverview';
+import { request } from '../lib/client-request';
+import { eventLabel, formatCount } from '../lib/presentation';
+import { MAX_BODY, MAX_PLACE_LENGTH, isPast } from '../lib/product';
+import { contentError } from '../lib/content';
+import { istInput, type AdminPost, type EntryDetail, type HistoryEntry, type Snapshot } from '../lib/admin-model';
+const date=new Intl.DateTimeFormat('en-IN',{timeZone:'Asia/Kolkata',dateStyle:'medium',timeStyle:'short'});
+const labels:Record<string,string>={edit:'Edited entry',hide:'Hidden from map',restore:'Restored to map',version:'Restored an earlier version',resolve:'Resolved reports',reopen:'Reopened reports'};
+function Status({post}:{post:AdminPost}){return <span className={`admin-status ${post.hiddenAt!==null?'is-hidden':''}`}>{post.hiddenAt!==null?'Hidden':post.archived?'Archive':'Current'}</span>;}
+export default function AdminDashboard(){const [ready,setReady]=useState(false);useEffect(()=>setReady(true),[]);return ready?<AdminRouter/>:<main className="admin-boot" aria-busy="true"><AdminSkeleton/></main>;}
+function AdminRouter(){const [router]=useState(()=>createBrowserRouter([{path:'/admin',element:<Dashboard/>}]));return <RouterProvider router={router}/>;}
+function Dashboard(){
+ const [params,setParams]=useSearchParams();const id=params.get('entry');const mainRef=useRef<HTMLElement>(null);
+ const view=params.get('tab')==='entries'||id||(!params.get('tab')&&['q','kind','view','visibility','reported','cursor'].some(key=>params.has(key)))?'entries':'overview';
+ const reportsView=params.get('reported')==='open';
+ useEffect(()=>{mainRef.current?.scrollTo({top:0,behavior:'instant'});},[view,reportsView]);
+ const [q,setQ]=useState(params.get('q')??'');const [reload,setReload]=useState(0),[dirty,setDirty]=useState(false);
+ const [list,setList]=useState<{posts:AdminPost[];total:number;nextCursor:string|null}>({posts:[],total:0,nextCursor:null}),[loading,setLoading]=useState(true),[error,setError]=useState('');
+ const previous=useRef<string[]>([]);const listKey=new URLSearchParams([...params].filter(([key])=>['q','kind','view','visibility','reported','cursor'].includes(key))).toString();
+ useEffect(()=>{setQ(params.get('q')??'');},[params.get('q')]);
+ useEffect(()=>{if(view!=='entries')return;const controller=new AbortController();setLoading(true);setError('');request<typeof list>(`/api/admin/posts?${listKey}`,undefined,controller.signal).then(data=>{if(!controller.signal.aborted)setList(data);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[listKey,reload,view]);
+ useEffect(()=>{if(!dirty)return;const warn=(event:BeforeUnloadEvent)=>event.preventDefault();window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
+ const blocker=useBlocker(({currentLocation,nextLocation})=>dirty&&new URLSearchParams(currentLocation.search).get('entry')!==new URLSearchParams(nextLocation.search).get('entry'));
+ useEffect(()=>{if(blocker.state==='blocked'){if(window.confirm('Discard your unsaved changes?'))blocker.proceed();else blocker.reset();}},[blocker]);
+ function update(values:Record<string,string|null>,reset=true){setParams(p=>{const next=new URLSearchParams(p);for(const [key,value]of Object.entries(values)){if(value)next.set(key,value);else next.delete(key);}if(reset)next.delete('cursor');return next;});if(reset)previous.current=[];}
+ function filter(key:string,label:string,options:[string,string][]){return <label className="admin-filter">{label}<select value={params.get(key)??'all'} onChange={e=>update({[key]:e.target.value==='all'?null:e.target.value})}>{options.map(([value,text])=><option key={value} value={value}>{text}</option>)}</select></label>;}
+ return <div className={`admin-shell admin-console ${id?'with-entry':''}`}>
+  <a className="skip-link" href="#admin-main">Skip to dashboard</a>
+  <aside className="admin-sidebar" aria-label="Administration navigation"><a className="admin-identity" href="/admin"><span className="admin-city-symbol"><MapPin size={22} weight="duotone"/></span><span><strong>Coimbatore</strong><small>Administration</small></span></a><nav aria-label="Dashboard sections"><button className={view==='overview'?'nav-current':''} aria-current={view==='overview'?'page':undefined} onClick={()=>update({tab:'overview',entry:null},false)}><SquaresFour size={20}/>Overview</button><button className={view==='entries'&&!reportsView?'nav-current':''} aria-current={view==='entries'&&!reportsView?'page':undefined} onClick={()=>update({tab:'entries',entry:null,reported:null})}><StickyNote size={20}/>Entries</button><button className={view==='entries'&&reportsView?'nav-current':''} aria-current={view==='entries'&&reportsView?'page':undefined} onClick={()=>update({tab:'entries',entry:null,reported:'open',q:null,kind:null,view:null,visibility:null})}><Flag size={20}/>Reports</button></nav><div className="admin-sidebar-footer"><p><ShieldCheck size={16}/>Owner access</p><a href="/"><MapPin size={18}/>Open map<ArrowUpRight size={16}/></a></div></aside>
+  <main ref={mainRef} className="admin-main" id="admin-main" tabIndex={-1}>
+  <header className="admin-page-header"><div><h1 className="heading-4">{view==='overview'?'Overview':reportsView?'Reports':'Entries'}</h1><p className="body-6">{view==='overview'?'A view of the city’s activity.':reportsView?'Review what needs attention.':'Notes and events, in one place.'}</p></div><span className="admin-header-context caption-4"><MapPin size={15}/>Coimbatore · IST</span></header>
+  {view==='overview'?<AdminOverview onEntries={reports=>update({tab:'entries',entry:null,reported:reports?'open':null,q:null,kind:null,view:null,visibility:null})}/>:<div className="admin-workspace">
+   <section className="admin-entries" aria-label="Entries">
+    <div className="admin-list-heading tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-3"><h2>Entries <span>{loading?'':formatCount(list.total)}</span></h2><button className="icon-button" onClick={()=>setReload(n=>n+1)} aria-label="Refresh entries" disabled={loading}><RotateCcw size={18}/></button></div>
+    <form className="admin-search tw:flex tw:items-center tw:gap-2" role="search" onSubmit={e=>{e.preventDefault();update({q:q.trim()||null});}}><Search size={18}/><input aria-label="Search entries by text or place" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search text or place" maxLength={256}/><button type="submit">Search</button>{q&&<button type="button" className="icon-button" aria-label="Clear entry search" onClick={()=>{setQ('');update({q:null});}}><X size={16}/></button>}</form>
+    <div className="admin-filters tw:grid tw:gap-3">
+     {filter('kind','Type',[['all','All types'],['note','Notes'],['event','Events']])}
+     {filter('view','Age',[['all','Current & archive'],['current','Current'],['archive','Archive']])}
+     {filter('visibility','Visibility',[['all','All visibility'],['visible','Visible'],['hidden','Hidden']])}
+     {filter('reported','Reports',[['all','All entries'],['open','Open reports'],['any','Ever reported']])}
+    </div>
+    <div className="admin-results" aria-busy={loading}>
+     {loading?<AdminSkeleton/>:error?<div className="admin-message" role="alert"><p>{error}</p><button className="secondary-button" onClick={()=>setReload(n=>n+1)}>Try again</button></div>:!list.posts.length?<div className="admin-message"><h3>{list.total?'No entries on this page.':'No matching entries.'}</h3><p>{listKey?'Try different filters or clear the search.':'Notes and events will appear here when people post.'}</p>{listKey&&<button className="secondary-button" onClick={()=>{setQ('');update({q:null,kind:null,view:null,visibility:null,reported:null,cursor:null});}}>Reset filters</button>}</div>:<table className="admin-table"><caption className="tw:sr-only">Notes and events matching your filters</caption><thead><tr><th scope="col">Place & entry</th><th scope="col">Created · IST</th><th scope="col">Upvotes</th><th scope="col">Visibility</th></tr></thead><tbody>{list.posts.map(post=><tr key={post.id} className={id===post.id?'selected-entry':''}><td><button className="admin-entry-button" aria-current={id===post.id?'true':undefined} onClick={()=>update({tab:'entries',entry:post.id},false)}><span className={`row-kind ${post.kind}`}>{post.kind==='event'?<CalendarDays size={17}/>:<StickyNote size={17}/>}</span><span><strong dir="auto">{post.place}</strong><span className="admin-excerpt" dir="auto">{post.body}</span><small>{post.kind==='event'?eventLabel(post,Date.now()):'Note'}{post.openReports>0?` · ${formatCount(post.openReports)} open ${post.openReports===1?'report':'reports'}`:''}</small><span className="admin-mobile-meta">{date.format(post.createdAt)} · {formatCount(post.votes)} upvotes · {post.hiddenAt!==null?'Hidden':post.archived?'Archive':'Current'}</span></span></button></td><td>{date.format(post.createdAt)}</td><td>{formatCount(post.votes)}</td><td><Status post={post}/></td></tr>)}</tbody></table>}
+    </div>
+    <nav className="admin-pagination tw:flex tw:flex-wrap tw:items-center tw:justify-between tw:gap-3" aria-label="Entry pages"><button className="secondary-button" disabled={!params.get('cursor')||loading} onClick={()=>{const cursor=previous.current.pop()??null;update({cursor},false);}}>{previous.current.length?'Previous':'First page'}</button><button className="secondary-button" disabled={!list.nextCursor||loading} onClick={()=>{previous.current.push(params.get('cursor')??'');update({cursor:list.nextCursor},false);}}>Next page</button></nav>
+   </section>
+   {id?<EntryEditor key={id} id={id} onDirty={setDirty} onChange={()=>setReload(n=>n+1)} onClose={()=>update({entry:null},false)}/>:<section className="admin-detail admin-detail-empty" aria-label="Entry details"><StickyNote size={27} strokeWidth={1.4}/><h2>Select an entry</h2><p>Review its details, make a change, or manage reports.</p></section>}
+  </div>}
+ </main></div>;
+}
+function EntryEditor({id,onDirty,onChange,onClose}:{id:string;onDirty:(dirty:boolean)=>void;onChange:()=>void;onClose:()=>void}){
+ const [detail,setDetail]=useState<EntryDetail|null>(null),[draft,setDraft]=useState({place:'',body:'',lng:'',lat:'',startsAt:'',endsAt:''}),[loading,setLoading]=useState(true),[error,setError]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[dirty,setDirty]=useState(false),[reload,setReload]=useState(0),[historyBusy,setHistoryBusy]=useState(false);
+ const heading=useRef<HTMLHeadingElement>(null);
+ function accept(data:EntryDetail){setDetail(data);const p=data.post;setDraft({place:p.place,body:p.body,lng:String(p.lng),lat:String(p.lat),startsAt:istInput(p.startsAt),endsAt:istInput(p.endsAt)});setDirty(false);onDirty(false);}
+ useEffect(()=>{const controller=new AbortController();setLoading(true);setError('');request<EntryDetail>(`/api/admin/posts/${id}`,undefined,controller.signal).then(data=>{if(!controller.signal.aborted)accept(data);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>{controller.abort();onDirty(false);};},[id,reload]);
+ useEffect(()=>{heading.current?.focus({preventScroll:true});},[!!detail]);
+ function edit(key:keyof typeof draft,value:string){setDraft(p=>({...p,[key]:value}));setDirty(true);onDirty(true);setError('');setMessage('');}
+ async function change(action:string,extra:Record<string,unknown>={}){
+   if(!detail||busy)return;
+   if(action!=='edit'&&dirty&&!window.confirm('Discard your unsaved changes and continue?'))return;
+   setBusy(true);setError('');setMessage('');
+   try{await request(`/api/admin/posts/${id}/change`,{action,revision:detail.post.revision,...extra});accept(await request<EntryDetail>(`/api/admin/posts/${id}`));setMessage(action==='edit'?'Changes saved.':'Change saved.');onChange();}
+   catch(e){setError((e as Error).message);}finally{setBusy(false);}
+ }
+ async function moreHistory(){if(!detail?.nextHistory||historyBusy)return;setHistoryBusy(true);try{const page=await request<Pick<EntryDetail,'history'|'nextHistory'>>(`/api/admin/posts/${id}/history?cursor=${encodeURIComponent(detail.nextHistory)}`);setDetail(p=>p?{...p,history:[...p.history,...page.history],nextHistory:page.nextHistory}:p);}catch(e){setError((e as Error).message);}finally{setHistoryBusy(false);}}
+ const validation=contentError(`${draft.place}\n${draft.body}`);
+ return <section className="admin-detail" aria-label="Entry editor"><div className="admin-detail-top tw:flex tw:items-center tw:justify-between tw:gap-3"><button className="text-button" onClick={onClose}><ArrowLeft size={16}/>Entries</button><span>{detail?`Version ${detail.post.revision}`:''}</span></div>
+  {loading?<AdminSkeleton editor/>:!detail?<div className="admin-message" role="alert"><p>{error}</p><button className="secondary-button" onClick={()=>setReload(n=>n+1)}>Try again</button></div>:<>
+   <h2 ref={heading} tabIndex={-1} className="admin-place-title" dir="auto">{detail.post.place}</h2><div className="admin-entry-meta tw:flex tw:flex-wrap tw:items-center tw:gap-2"><Status post={detail.post}/><span>{detail.post.kind==='event'?'Event':'Note'} · {formatCount(detail.post.votes)} upvotes</span>{isPast(detail.post)&&<strong>Ended</strong>}</div><p className="admin-created">Created {date.format(detail.post.createdAt)} IST</p>
+   <form className="admin-editor-form" onSubmit={(e:FormEvent)=>{e.preventDefault();void change('edit',{...draft,lng:Number(draft.lng),lat:Number(draft.lat)});}}>
+    <fieldset disabled={busy}><label>Place<input value={draft.place} maxLength={MAX_PLACE_LENGTH} onChange={e=>edit('place',e.target.value)} required/></label><label>{detail.post.kind==='note'?'Note':'Event details'}<textarea rows={5} value={draft.body} minLength={3} maxLength={MAX_BODY} onChange={e=>edit('body',e.target.value)} required dir="auto"/></label><div className="admin-field-caption">{draft.body.length}/{MAX_BODY} · No contact details</div><div className="admin-coordinate-fields tw:grid tw:grid-cols-2 tw:gap-3"><label>Longitude<input type="number" step="any" required value={draft.lng} onChange={e=>edit('lng',e.target.value)}/></label><label>Latitude<input type="number" step="any" required value={draft.lat} onChange={e=>edit('lat',e.target.value)}/></label></div>{detail.post.kind==='event'&&<><label>Starts · IST<input type="datetime-local" required value={draft.startsAt} onChange={e=>edit('startsAt',e.target.value)}/></label><label>Ends · IST<input type="datetime-local" required value={draft.endsAt} onChange={e=>edit('endsAt',e.target.value)}/></label></>}
+    {validation&&<p className="form-error" role="alert">{validation}</p>}<button className="primary-button full" disabled={busy||!dirty||!!validation||draft.body.trim().length<3} type="submit">{busy?<LoaderCircle size={17} className="spin"/>:<Check size={17}/>}Save changes</button></fieldset>
+   </form>
+   <div className="admin-feedback" aria-live="polite">{error&&<div role="alert"><p className="form-error">{error}</p><button className="text-button" onClick={()=>{if(!dirty||window.confirm('Discard your unsaved changes and reload?'))setReload(n=>n+1);}}>Reload entry</button></div>}{message&&<p className="admin-success"><Check size={15}/>{message}</p>}</div>
+   <section className="admin-section"><h3>Visibility</h3><p>{detail.post.hiddenAt!==null?'Hidden from Current and Archive.':detail.post.archived?'Visible in Archive.':'Visible in Current.'}</p><button className="secondary-button full" disabled={busy} onClick={()=>void change(detail.post.hiddenAt!==null?'restore':'hide')}>{detail.post.hiddenAt!==null?<Eye size={16}/>:<EyeOff size={16}/ >}{detail.post.hiddenAt!==null?'Restore to map':'Hide from map'}</button></section>
+   <section className="admin-section"><h3>Reports <span>{formatCount(detail.post.reportCount)}</span></h3>{detail.reports.length?<><ul className="admin-report-list">{detail.reports.map(report=><li key={report.reason}><strong>{({contact:'Contact details',unsafe:'Unsafe content',spam:'Spam'} as Record<string,string>)[report.reason]??report.reason}</strong><span>{formatCount(report.open)} open · {formatCount(report.resolved)} resolved</span></li>)}</ul><button className="secondary-button full" disabled={busy||!detail.post.openReports} onClick={()=>void change('resolve')}>Mark open reports resolved</button></>:<p>No reports for this entry.</p>}</section>
+   <section className="admin-section"><h3><History size={17}/>History</h3>{detail.history.length?<ol className="admin-history">{detail.history.map(entry=><li key={entry.id}><strong>{labels[entry.action]??'Changed entry'}</strong><time>{date.format(entry.createdAt)} IST · v{entry.revision}</time><details><summary>Review change</summary><HistoryState title="Before" state={entry.before}/><HistoryState title="After" state={entry.after}/></details>{['edit','hide','restore','version'].includes(entry.action)&&<button className="text-button" disabled={busy} onClick={()=>{if(window.confirm('Restore the content and visibility from before this change?'))void change('version',{historyId:entry.id});}}>Restore previous version</button>}{entry.action==='resolve'&&<button className="text-button" disabled={busy} onClick={()=>void change('reopen',{historyId:entry.id})}>Reopen these reports</button>}</li>)}</ol>:<p>No administrative changes yet.</p>}{detail.nextHistory&&<button className="secondary-button full" disabled={historyBusy} onClick={()=>void moreHistory()}>{historyBusy?'Loading history…':'Older changes'}</button>}</section>
+  </>}
+ </section>;
+}
+function HistoryState({title,state}:{title:string;state:Snapshot}){return <div className="admin-history-state"><h4>{title}</h4><p dir="auto">{state.place}</p><p dir="auto">{state.body}</p><small>{state.lng}, {state.lat} · {state.hiddenAt!==null?'Hidden':'Visible'}</small>{state.kind==='event'&&<small>{date.format(state.startsAt!)} — {date.format(state.endsAt!)} IST</small>}</div>;}

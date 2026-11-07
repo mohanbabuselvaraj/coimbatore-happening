@@ -1,0 +1,2 @@
+export type ActivityMetric='visits'|'placeViews';
+export type ActivityOverview={days:number;from:string;to:string;startedAt:number|null;totals:{visits:number;placeViews:number;places:number};daily:{day:string;visits:number|null;placeViews:number|null}[];places:{key:string;place:string;lng:number;lat:number;views:number;lastDay:string}[];placeTotal:number;nextOffset:number|null;moderation:{entries:number;notes:number;events:number;hidden:number;openReports:number};updatedAt:number};
