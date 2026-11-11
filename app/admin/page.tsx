@@ -1,3 +1,5 @@
+import AdminLogin from '../../components/AdminLogin';
+import {adminPasswordStatus} from '../../lib/admin-password';
 import './admin.css';
 import { headers } from 'next/headers';
 import { env } from 'cloudflare:workers';
@@ -9,5 +11,7 @@ export const metadata={title:'Administration · Coimbatore',robots:{index:false,
 export default async function AdminPage(){
  const access=adminAccess(new Headers(await headers()),env.ADMIN_OWNER_EMAIL);
  if(access.status!==200)return <main className="admin-gate"><h1>Administration</h1><p>{access.message}</p>{access.status===401&&<a className="primary-button" href={chatGPTSignInPath('/admin')} target="_top">Sign in with ChatGPT</a>}<a href="/">Back to the map</a></main>;
- return <AdminDashboard/>;
+ if(!env.DB)return <main className="admin-gate"><h1>Administration</h1><p>The database is temporarily unavailable.</p></main>;
+ const status=await adminPasswordStatus(new Headers(await headers()),env.DB,access.userId,import.meta.env.DEV);
+ return status.unlocked?<AdminDashboard/>:<AdminLogin setup={!status.configured}/>;
 }

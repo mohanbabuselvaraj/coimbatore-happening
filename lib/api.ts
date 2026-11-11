@@ -7,6 +7,7 @@ import { postQuery } from './post-query';
 import { ApiError, json, payload } from './http';
 import { recordActivity } from './activity';
 import { adminRoutes } from './admin-api';
+import { loadWeather } from './weather';
 const publicSelect = `SELECT p.id, p.kind, p.body, p.place, p.lng, p.lat,
   p.created_at AS createdAt, p.starts_at AS startsAt, p.ends_at AS endsAt,
   (SELECT COUNT(*) FROM votes v WHERE v.post_id=p.id) AS votes FROM posts p`;
@@ -117,12 +118,7 @@ async function weatherRoute(request:Request) {
   return publicResponse(new Request(request.url),async()=>{
   if(weatherMemory && Date.now()-weatherMemory.time<300000) return Response.json(weatherMemory.value,{headers:{'Cache-Control':'public,max-age=300'}});
   try {
-    const response=await fetch('https://api.open-meteo.com/v1/forecast?latitude=11.0168&longitude=76.9558&current=temperature_2m,weather_code,cloud_cover,precipitation&daily=sunrise,sunset&timezone=Asia%2FKolkata&timeformat=unixtime&forecast_days=1',{signal:AbortSignal.timeout(10000)});
-    if(!response.ok) throw new Error('weather unavailable');
-    const data=await response.json() as {current:{temperature_2m:number;weather_code:number;cloud_cover:number;precipitation:number;time:number};daily:{sunrise:number[];sunset:number[]}};
-    const c=data.current,d=data.daily;
-    if(!Number.isFinite(c?.temperature_2m)||!Number.isFinite(c?.time)||!d?.sunrise?.[0]||!d?.sunset?.[0])throw new Error('weather invalid');
-    const value:Weather={temperature:c.temperature_2m,code:c.weather_code,cloud:c.cloud_cover,rain:c.precipitation,sunrise:d.sunrise[0]*1000,sunset:d.sunset[0]*1000,observedAt:c.time*1000,fetchedAt:Date.now()};
+    const value=await loadWeather();
     weatherMemory={value,time:Date.now()};
     return Response.json(value,{headers:{'Cache-Control':'public,max-age=300'}});
   }catch{

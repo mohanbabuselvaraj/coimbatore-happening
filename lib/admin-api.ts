@@ -1,3 +1,4 @@
+import {adminPasswordRoutes,adminPasswordStatus} from './admin-password.ts';
 import { activityOverview } from './activity.ts';
 import { ApiError, json, payload } from './http.ts';
 import { adminAccess } from './admin-access.ts';
@@ -23,6 +24,9 @@ export async function adminRoutes(request:Request,url:URL,db:D1Database|undefine
  if(!db)throw new ApiError('The database is temporarily unavailable.',503);
  if(request.method==='POST'&&request.headers.get('origin')!==url.origin)throw new ApiError('Use this dashboard to make changes.',403);
  const path=url.pathname;
+ if(path.startsWith('/api/admin/auth/'))return adminPasswordRoutes(request,url,db,ownerEmail);
+ const local=url.protocol==='http:'&&['127.0.0.1','localhost','[::1]'].includes(url.hostname);
+ if(!(await adminPasswordStatus(request.headers,db,access.userId,local)).unlocked)return json({error:'Enter your admin password to continue.',code:'ADMIN_LOCKED'},401);
  if(path==='/api/admin/overview'&&request.method==='GET')return activityOverview(url,db);
  if(path==='/api/admin/session'&&request.method==='GET')return json({owner:true});
  if(path==='/api/admin/posts'&&request.method==='GET'){

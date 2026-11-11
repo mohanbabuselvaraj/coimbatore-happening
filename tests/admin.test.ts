@@ -13,7 +13,7 @@ test('admin authorization fails closed for missing identity, wrong identity and 
 });
 test('every admin read and mutation rejects a non-owner before touching the database',async()=>{
  const db=new Proxy({},{get(){throw Error('Unauthorized database access');}}) as D1Database;
- for(const method of ['GET','POST'])for(const path of ['/api/admin/session','/api/admin/overview','/api/admin/posts','/api/admin/posts/aaaaaaaa-0000-4000-8000-000000000001','/api/admin/posts/aaaaaaaa-0000-4000-8000-000000000001/history','/api/admin/posts/aaaaaaaa-0000-4000-8000-000000000001/change']){
+ for(const method of ['GET','POST'])for(const path of ['/api/admin/auth/status','/api/admin/auth/setup','/api/admin/auth/login','/api/admin/auth/logout','/api/admin/session','/api/admin/overview','/api/admin/posts','/api/admin/posts/aaaaaaaa-0000-4000-8000-000000000001','/api/admin/posts/aaaaaaaa-0000-4000-8000-000000000001/history','/api/admin/posts/aaaaaaaa-0000-4000-8000-000000000001/change']){
   const url=new URL('https://map.test'+path),headers=new Headers({'oai-authenticated-user-id':'viewer','oai-authenticated-user-email':'viewer@example.test'});
   await assert.rejects(()=>adminRoutes(new Request(url,{method,headers}),url,db,owner),(e:unknown)=>typeof e==='object'&&e!==null&&'status' in e&&e.status===403);
  }

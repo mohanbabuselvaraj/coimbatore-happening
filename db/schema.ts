@@ -57,3 +57,10 @@ export const activityMeta=sqliteTable('activity_meta',{
  key:text('key').primaryKey(),
  value:integer('value').notNull(),
 });
+
+export const adminCredentials=sqliteTable('admin_credentials',{
+ id:text('id').primaryKey(),ownerId:text('owner_id').notNull(),passwordHash:text('password_hash').notNull(),
+});
+export const adminSessions=sqliteTable('admin_sessions',{
+ tokenHash:text('token_hash').primaryKey(),ownerId:text('owner_id').notNull(),passwordTag:text('password_tag').notNull(),createdAt:integer('created_at').notNull(),lastSeenAt:integer('last_seen_at').notNull(),expiresAt:integer('expires_at').notNull(),
+},table=>[index('admin_sessions_expiry').on(table.expiresAt)]);

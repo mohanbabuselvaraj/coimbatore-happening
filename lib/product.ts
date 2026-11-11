@@ -16,6 +16,7 @@ export type Post = {
 export type Weather = {
   temperature: number; code: number; cloud: number; rain: number;
   sunrise: number; sunset: number; observedAt: number; fetchedAt: number;
+  source?: 'open-meteo' | 'met-norway'; label?: string;
 };
 
 export function inCity(lng: number, lat: number) {

@@ -28,7 +28,7 @@ The `predev` and `prebuild` scripts synchronize MapLibre's worker and its licenc
 - Schema in `db/schema.ts`; immutable generated SQL and Drizzle metadata under `drizzle/`.
 - Map style, vector data, fonts, and sprite traffic proxy through `/api/map/`; the browser does not contact the tile provider directly.
 - Search runs against `public/data/places.json`, an ODbL snapshot of 2,795 OSM-derived places. Unindexed places can be selected directly on the map.
-- Weather is fetched by the server and cached for five minutes. The UI labels stale or unavailable data. Current weather is modeled provider data, not a local weather-station measurement.
+- Weather is fetched by the server and checked every five minutes. Open-Meteo is primary; MET Norway supplies an explicitly labelled forecast fallback when the primary fails. Provider payloads respect their Expires headers, concurrent fetches are shared, and Open-Meteo 429 responses trigger a Retry-After cooldown (one hour if omitted). No visitor location, address or browser headers are forwarded. The UI labels forecast, stale and unavailable states; data are modeled conditions, not local weather-station measurements.
 - Each public field is screened on the server before storage. The browser repeats checks for immediate feedback. Event dates and coordinates remain structured data.
 
 ## Starting policies
@@ -73,19 +73,28 @@ Open-Meteo's public endpoint is selected for a non-commercial preview. Reassess 
 - [OpenStreetMap contributors / ODbL](https://www.openstreetmap.org/copyright)
 - [OpenFreeMap](https://openfreemap.org/) and [OpenMapTiles](https://openmaptiles.org/)
 - [Open-Meteo](https://open-meteo.com/) current conditions, attributed under CC BY 4.0
+- [MET Norway](https://api.met.no/) fallback forecasts and solar times, [CC BY 4.0](https://api.met.no/license_data.html). Provider symbols are normalized to short condition labels for this interface.
 - MapLibre GL JS is vendored only for its public worker files, with its licence.
 
 `scripts/fetch-places-from-tiles.mjs` refreshes the local place snapshot from a bounded tile set using at most four concurrent requests and 50 MB. The earlier Overpass extraction script remains an optional alternative; the initial Overpass services were unavailable. Do not substitute fabricated place data.
 
 ## Owner dashboard
 
-Open /admin and sign in through Sites. ADMIN_OWNER_EMAIL is a private runtime configuration value matching the verified Site owner's platform email. Every admin request requires the platform user ID and matching email; signing in alone grants no admin access. Missing configuration fails closed. The local Sites mock uses seedy@sites.test; its cookie and identity injection are loopback-only development behavior and absent from production.
+Open /admin and sign in through Sites. ADMIN_OWNER_EMAIL is a private runtime configuration value matching the verified Site owner's platform email. Every admin request requires the platform user ID and matching email, followed by a separate password session; signing in alone grants no admin access. Missing configuration fails closed. The local Sites mock uses seedy@sites.test; its cookie and identity injection are loopback-only development behavior and absent from production.
+
+On the first authorized visit, the owner sets a separate 16–128 character password privately in the form. Store it in a password manager; never put it in chat, source code, or runtime logs. D1 stores only a randomly salted scrypt hash (`N=32768, r=8, p=3`, 32 MiB), using native server cryptography and an [OWASP recommended configuration](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#scrypt). Password setup is atomic so concurrent requests cannot replace an existing password. Login and setup share a limit of eight attempts per owner per clock hour.
+
+The dashboard locks after 15 minutes without a successful admin request, with an eight-hour absolute session limit. Lock dashboard revokes the current session immediately. Production sessions use a Secure, HttpOnly, SameSite=Strict, host-only cookie; D1 stores the token hash, bound to the platform owner and current password hash. Password hashes and session metadata never appear in dashboard responses. A local HTTP preview uses a separate development cookie name.
+
+There is no public password-reset endpoint. If the owner loses the password, use authenticated, private D1 operator access to delete the owner's `admin_sessions` and singleton `admin_credentials` row together in a transaction, after confirming the owner ID. The next authorized owner visit offers setup again. Never expose that operation as a public route. Replacing or removing a password hash invalidates existing sessions; the platform owner check always remains required. This recovery changes only the admin gate, preserving community entries and reports.
 
 The dashboard searches and pages real D1 entries, edits public text/location/IST times, hides/restores posts independently of Archive, resolves/reopens report batches, and records private before/after history. Restoring a historical version revalidates public content and records a new change. All mutations use a revision check and an atomic D1 batch; stale edits return 409. Vote counts and contributor identity remain outside the editor.
 
 Migration 0001 adds nullable visibility/report-resolution columns, a constant revision default and admin_history. It preserves existing entries and tables. For an existing local database, apply this migration once using wrangler d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0001_slippery_cobalt_man.sql. Hosted Sites applies pending migrations during publication. Never reapply the SQL to a database where it has already run.
 
-Run tests/admin-integration.mjs against the local preview for permission, spoofing, CSRF, D1 concurrency/audit, editing, reports, reversal and public map visibility checks. Its fixtures are local and deleted in finally.
+Migration `0003_eager_firelord.sql` adds only `admin_credentials`, `admin_sessions` and a session-expiry index. Apply it once to an existing local database using the same Wrangler command pattern. Hosted publication applies pending migrations; it does not set a password.
+
+Run `node tests/admin-password-integration.mjs` against the local preview on port 5173 with an unconfigured disposable local admin database. It checks password setup races, owner authorization, CSRF, validation, login limits, idle/absolute expiry and logout. It also runs `tests/admin-integration.mjs` and `tests/activity-integration.mjs` with a temporary local session to verify moderation, audit history, public visibility and activity behavior. Test passwords, sessions and fixtures are removed in finally; it refuses to overwrite an existing local password. These scripts must never target production.
 
 ## Anonymous map activity
 
